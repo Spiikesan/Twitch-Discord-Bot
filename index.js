@@ -2,6 +2,7 @@ const Discord = require('discord.js');
 const client = new Discord.Client();
 var CronJob = require('cron').CronJob;
 const fs = require('fs')
+const util = require('util')
 
 const Stream = require("./modules/getStreams.js")
 const Auth = require("./modules/auth.js")
@@ -22,9 +23,10 @@ var Check = new CronJob(config.cron,async function () {
 
     tempData.channels.map(async function (chan, i) {
         if (!chan.ChannelName) return;
-        
+
         let StreamData = await Stream.getData(chan.ChannelName, tempData.twitch_clientID, tempData.authToken);
-        if (StreamData.data.length == 0) return
+
+        if ((StreamData?.data?.length ?? 0) == 0) return
 
         StreamData = StreamData.data[0]
 
@@ -34,13 +36,13 @@ var Check = new CronJob(config.cron,async function () {
 
         //structure for the embed
         var SendEmbed = {
-            "title": `🔴 ${StreamData.user_name} is now live`,
+            "title": `🎥 ${StreamData.user_name} est en live`,
             "description": StreamData.title,
             "url": `https://www.twitch.tv/${StreamData.user_login}`,
-            "color": 6570404,
+            "color": 0xaf1717,
             "fields": [
                 {
-                    "name": "Playing:",
+                    "name": "Jeu:",
                     "value": StreamData.game_name,
                     "inline": true
                 },
@@ -51,11 +53,11 @@ var Check = new CronJob(config.cron,async function () {
                 },
                 {
                     "name": "Twitch:",
-                    "value": `[Watch stream](https://www.twitch.tv/${StreamData.user_login})`
+                    "value": `[Voir le stream](https://www.twitch.tv/${StreamData.user_login})`
                 },
                 (chan.DiscordServer ? {
                     "name": "Discord Server:",
-                    "value": `[Join here](${chan.DiscordServer})`
+                    "value": `[Rejoindre](${chan.DiscordServer})`
                 } : {
                     "name": "** **",
                     "value": "** **"
@@ -73,28 +75,33 @@ var Check = new CronJob(config.cron,async function () {
         }
 
         //get the assigned channel
-        const sendChannel = client.guilds.cache.get(config.DiscordServerId).channels.cache.get(config.channelID)
+        const gameConf = chan.games[StreamData.game_name] || chan.games.__undefined__;
 
-        if (chan.twitch_stream_id == StreamData.id) {
-            sendChannel.messages.fetch(chan.discord_message_id).then(msg => {
-                //update the title, game, viewer_count and the thumbnail
-                msg.edit({ embed: SendEmbed })
-            });
-        } else {
-            //this is the message when a streamer goes live. It will tag the assigned role
-            await sendChannel.send({ embed: SendEmbed }).then(msg => {
-                const channelObj = tempData.channels[i]
-                
-                channelObj.discord_message_id = msg.id
-                channelObj.twitch_stream_id = StreamData.id
-                
-                if(config.roleID){
-                    sendChannel.send(`<@&${config.roleID}>`)
-                }
-            })
+        if (gameConf !== undefined)
+        {
+            const sendChannel = client.guilds.cache.get(config.DiscordServerId).channels.cache.get(gameConf.channelID)
+
+            if (chan.twitch_stream_id == StreamData.id) {
+                sendChannel.messages.fetch(gameConf.discord_message_id.toString()).then(msg => {
+                    //update the title, game, viewer_count and the thumbnail
+                    msg.edit({ embed: SendEmbed })
+                });
+            } else {
+                //this is the message when a streamer goes live. It will tag the assigned role
+                await sendChannel.send({ embed: SendEmbed }).then(msg => {
+                    const channelObj = tempData.channels[i]
+                    
+                    gameConf.discord_message_id = msg.id
+                    channelObj.twitch_stream_id = StreamData.id
+                    
+                    if(gameConf.roleID){
+                        sendChannel.send(`<@&${gameConf.roleID}>`)
+                    }
+                })
+            }
+            //save config with new data
+            fs.writeFileSync('./config.json', JSON.stringify(tempData, undefined, 4))
         }
-        //save config with new data
-        fs.writeFileSync('./config.json', JSON.stringify(tempData))
     })
 });
 
@@ -114,7 +121,7 @@ async function UpdateAuthConfig(){
     //write the new auth key
     var tempConfig = JSON.parse(fs.readFileSync('./config.json'));
     tempConfig.authToken = authKey;
-    fs.writeFileSync('./config.json', JSON.stringify(tempConfig));
+    fs.writeFileSync('./config.json', JSON.stringify(tempConfig, undefined, 4));
 }
 
 //start the timers
